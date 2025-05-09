@@ -1,3 +1,4 @@
+import sys
 import json
 import time
 import os # osモジュールをインポート
@@ -278,10 +279,10 @@ def main():
             config = json.load(f)
     except FileNotFoundError:
         print("エラー: config.json が見つかりません。")
-        exit(1)
+        sys.exit(1)
     except json.JSONDecodeError:
         print("エラー: config.json の形式が不正です。")
-        exit(1)
+        sys.exit(1)
 
     # --- 設定値の取得 ---
     # pdf_file_path = config.get("pdf_file_path") # config.json から読み込む代わりにGUIで選択
@@ -314,7 +315,7 @@ def main():
 
     if not pdf_file_path or not selected_output_formats:
         print("PDFファイルまたは出力形式が選択されなかった（キャンセルされた）ため、処理を終了します。")
-        exit(0)
+        sys.exit(0)
     print(f"選択された出力形式: {', '.join(selected_output_formats)}")
     # --- ここまで ---
     # --- 必須設定値のチェック ---
@@ -322,7 +323,7 @@ def main():
     if not all([google_api_key, sleep_time is not None, model_name, token_pickle_file, credentials_file, scopes_from_config]): # 元のscopes_from_configでチェック
         print("エラー: config.json に必須の設定項目が不足しています。")
         print("必要な項目: google_api_key, sleep_time, model_name, token_pickle_file, credentials_file, scopes, use_google_drive, output_file_path")
-        exit(1) # 設定不足はエラーとして 1 で終了
+        sys.exit(1) # 設定不足はエラーとして 1 で終了
 
     filename = pdf_file_path.split('/')[-1].split('.')[0]   # PDFファイルパスから拡張子を除いたファイル名を取得
     # --- 出力ファイル名/タイトルの設定 (複数形式に対応) ---
@@ -345,14 +346,14 @@ def main():
     # ここでのチェックは簡略化（認証関数がNoneを返した場合のみエラーとする）
     if any(fmt.startswith("google") for fmt in selected_output_formats) and (docs_service is None or drive_service is None or gspread_client is None):
         print("Google API認証に失敗したため、処理を終了します。(Google出力形式選択時)")
-        exit(1)
+        sys.exit(1)
 
     # --- 4. PDFをブックマークに基づいて章分割 ---
     # split_text_by_bookmarks は {章タイトル: {"text": 章テキスト, "level": 階層レベル}} の辞書を返す
     chapters_dict = split_text_by_bookmarks(pdf_file_path)
     if not chapters_dict:
         print("PDFから章を抽出できませんでした（ブックマークがないか、処理エラー）。処理を終了します。")
-        exit()
+        sys.exit()
 
     # 抽出された章のデータからタイトル、テキスト、レベルをリストに分解
     chapter_titles = list(chapters_dict.keys()) # 章タイトルも保持しておく
