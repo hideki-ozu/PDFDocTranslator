@@ -14,5 +14,6 @@
   "use_google_drive": false,
   "output_file_path": "output/filename",
   "retry_count": 2,
-  "initial_retry_delay": 5
+  "initial_retry_delay": 5,
+  "excel_max_cell_length": 30000
 }
