@@ -197,18 +197,39 @@ def split_text_by_bookmarks(pdf_path):
                 else:
                     end_page = len(reader.pages) # PDFの総ページ数
                 chapter_text = ""
-                # 該当ページのテキストを抽出
-                if start_page == end_page:
-                    page = reader.pages[start_page]
-                    page_text = page.extract_text()
-                    if page_text:
-                        chapter_text = page_text
+
+                # 1. start_page の妥当性チェック
+                if not (0 <= start_page < len(reader.pages)):
+                    print(f"警告: ブックマーク '{title}' が指す開始ページ {start_page} はPDFの有効範囲外です。この章のテキストは空になります。")
+                    # chapter_text は "" のまま
                 else:
-                    for page_num in range(start_page, end_page):
-                        page = reader.pages[page_num]
-                        page_text = page.extract_text()
-                        if page_text:
-                            chapter_text += page_text
+                    # ページ抽出の際の上限ページ番号（このページ番号自体はrangeに含まない）を設定します。
+                    # 現在の章のテキストとして、次のブックマークの開始ページ(end_page)の内容まで含めて抽出します。
+                    # end_page は次のブックマークの開始ページインデックス、または len(reader.pages) です。
+                    # ループで page_num が start_page から end_page (またはPDF最終ページ) まで動くように、
+                    # range の第二引数は page_extraction_upper_bound とします。
+                    # page_extraction_upper_bound は end_page + 1 となりますが、len(reader.pages) を超えないようにします。
+                    page_extraction_upper_bound = min(end_page + 1, len(reader.pages))
+
+                    # 例:
+                    # 1. 次のブックマークがページP (インデックス) にある場合:
+                    #    end_page = P
+                    #    page_extraction_upper_bound = min(P + 1, len(reader.pages))
+                    #    range(start_page, P + 1) -> page_num は start_page ... P
+                    # 2. これが最後のブックマークの場合:
+                    #    end_page = len(reader.pages)
+                    #    page_extraction_upper_bound = min(len(reader.pages) + 1, len(reader.pages)) = len(reader.pages)
+                    #    range(start_page, len(reader.pages)) -> page_num は start_page ... len(reader.pages) - 1
+
+                    if start_page < page_extraction_upper_bound: # 通常は true (start_page <= end_page のため)
+                        for page_num in range(start_page, page_extraction_upper_bound):
+                            # page_num は常に有効なインデックスになるはず
+                            page = reader.pages[page_num]
+                            page_text = page.extract_text()
+                            if page_text:
+                                chapter_text += page_text
+                    # else の場合 (start_page >= page_extraction_upper_bound)、抽出するページなし。
+                    # chapter_text は空のままなので問題ない。
 
                 # --- マーカー（ブックマークタイトル）ベースのテキスト絞り込み処理 ---
                 # 抽出したページテキスト(chapter_text)から、現在のブックマークタイトル(title)と

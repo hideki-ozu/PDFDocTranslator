@@ -3,6 +3,7 @@ import json
 import time
 import os # osモジュールをインポート
 import tkinter as tk
+import re # 正規表現モジュールをインポート
 from tkinter import filedialog
 import pandas as pd # pandas をインポート
 
@@ -194,10 +195,28 @@ def save_to_asciidoc(output_base_path, chapter_titles, translated_chunks, chapte
     except Exception as e:
         print(f"エラー: AsciiDocファイルへの保存中にエラーが発生しました: {e}")
 
-# --- Excelセル長超過対応ヘルパー ---
-EXCEL_MAX_CELL_LENGTH = 32767 # Excelのセルあたりの最大文字数
 
-def _split_text_for_excel(text, max_length=EXCEL_MAX_CELL_LENGTH):
+# --- Excelセル書き込みのためのサニタイズヘルパー ---
+# XML 1.0 仕様で許可されていない文字（タブ、改行、復帰を除く制御文字）の正規表現
+# openpyxl がチェックする ILLEGAL_CHARACTERS_RE と同様の意図
+_ILLEGAL_EXCEL_CHARS_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+def _sanitize_for_excel_cell(text):
+    """Excelのセルに書き込む前に文字列をサニタイズします。
+    不正なXML文字を除去し、特定の先頭文字をエスケープします。
+    """
+    if not isinstance(text, str):
+        return text # 文字列でなければそのまま返す
+
+    # 1. 不正なXML文字（制御文字など）を除去
+    sanitized_text = _ILLEGAL_EXCEL_CHARS_RE.sub('', text)
+
+    # 2. Excelが数式や特殊なコマンドと誤認する可能性のある先頭文字の前にシングルクォートを追加
+    if sanitized_text and sanitized_text.startswith(('=', '+', '-', '@')):
+        sanitized_text = "'" + sanitized_text
+    return sanitized_text
+
+def _split_text_for_excel(text, max_length):
     """テキストを指定された最大長以下のチャンクに分割します。"""
     if not isinstance(text, str): # 文字列でない場合はそのまま返す
         return [text]
@@ -211,7 +230,7 @@ def _split_text_for_excel(text, max_length=EXCEL_MAX_CELL_LENGTH):
         chunks.append(text[start:end])
         start = end
     return chunks
-def save_to_excel(output_base_path, chapter_titles, original_texts, translated_chunks):
+def save_to_excel(output_base_path, chapter_titles, original_texts, translated_chunks, excel_max_cell_length):
     """翻訳結果をExcelファイル (.xlsx) に保存します。
 
     Args:
@@ -219,6 +238,7 @@ def save_to_excel(output_base_path, chapter_titles, original_texts, translated_c
                           例: "output/mydoc_translated"
         chapter_titles: 各章のタイトルリスト。
         original_texts: 各章に対応する原文テキストのリスト。
+        excel_max_cell_length: Excelのセルあたりの最大文字数。
         translated_chunks: 各章に対応する翻訳済みテキストのリスト。
 
     Returns:
@@ -231,19 +251,19 @@ def save_to_excel(output_base_path, chapter_titles, original_texts, translated_c
         excel_data = [] # Excelに出力するデータを格納するリスト
         for title, original, translated in zip(chapter_titles, original_texts, translated_chunks):
             # 原文と訳文を最大セル長で分割
-            original_chunks = _split_text_for_excel(original)
-            translated_chunks_split = _split_text_for_excel(translated) # 変数名を変更
+            original_chunks = _split_text_for_excel(original, excel_max_cell_length)
+            translated_chunks_split = _split_text_for_excel(translated, excel_max_cell_length) # 変数名を変更
 
             # 分割されたチャンクの最大数に合わせて行を作成
             max_rows = max(len(original_chunks), len(translated_chunks_split))
 
             for i in range(max_rows):
                 # 最初の行にはタイトルを、それ以降は空文字を設定
-                current_title = title if i == 0 else ""
+                current_title = _sanitize_for_excel_cell(title if i == 0 else "")
                 # 各行に対応する原文チャンクを取得 (なければ空文字)
-                current_original = original_chunks[i] if i < len(original_chunks) else ""
+                current_original = _sanitize_for_excel_cell(original_chunks[i] if i < len(original_chunks) else "")
                 # 各行に対応する訳文チャンクを取得 (なければ空文字)
-                current_translated = translated_chunks_split[i] if i < len(translated_chunks_split) else ""
+                current_translated = _sanitize_for_excel_cell(translated_chunks_split[i] if i < len(translated_chunks_split) else "")
 
                 excel_data.append({
                     "タイトル": current_title,
@@ -302,6 +322,12 @@ def main():
     retry_count = config.get("retry_count", 2) # デフォルトリトライ回数を2に設定
     initial_retry_delay = config.get("initial_retry_delay", 5) # デフォルト初期遅延を5秒に設定
     # output_format はGUIで選択
+    excel_max_cell_length = config.get("excel_max_cell_length")
+    if not isinstance(excel_max_cell_length, int) or excel_max_cell_length <= 0:
+        print(f"警告: config.json の excel_max_cell_length ({excel_max_cell_length}) が不正な値です。デフォルト値 30000 を使用します。")
+        excel_max_cell_length = 30000 # デフォルト値
+
+
     output_file_path = config.get("output_file_path", "output/result") # デフォルトパス設定
 
     # Google Driveを使用しない場合は、関連スコープを除外
@@ -469,7 +495,7 @@ def main():
             elif output_format == "asciidoc":
                 save_to_asciidoc(output_base_path, output_chapter_titles, translated_chapters, output_chapter_levels)
             elif output_format == "excel":
-                save_to_excel(output_base_path, output_chapter_titles, original_texts_for_output, translated_chapters)
+                save_to_excel(output_base_path, output_chapter_titles, original_texts_for_output, translated_chapters, excel_max_cell_length)
             else:
                 # 基本的にここには到達しないはず (GUIで選択されたもののみのため)
                 print(f"警告: 未知の出力形式 '{output_format}' が指定されました。スキップします。")
