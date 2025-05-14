@@ -62,6 +62,28 @@ def extract_text_from_pdf(pdf_path):
     print(f"PDFからのテキスト抽出完了。総文字数: {len(full_text)}")
     return full_text
 
+# --- Helper function for apostrophe normalization ---
+def _normalize_apostrophes(text: str) -> str:
+    """
+    Normalizes different apostrophe-like characters in a string to a standard apostrophe (U+0027).
+    """
+    if not isinstance(text, str):
+        return text
+    # Normalize various quote and apostrophe characters to a standard form.
+    # Double quotes (typographic or standard) are converted to two single quotes.
+    # Single quotes (typographic or grave/acute accents) are converted to one single quote.
+    replacements_dict = {
+        "\u201c": "''",  # LEFT DOUBLE QUOTATION MARK “ -> ''
+        "\u201d": "''",  # RIGHT DOUBLE QUOTATION MARK ” -> ''
+        '"': "''",       # STANDARD QUOTATION MARK " -> ''
+        "\u2019": "'",  # RIGHT SINGLE QUOTATION MARK
+        "\u0060": "'",  # GRAVE ACCENT
+        "\u00b4": "'",  # ACUTE ACCENT
+        # Add other common variants if necessary
+    }
+    for old, new in replacements_dict.items():
+        text = text.replace(old, new)
+    return text
 # --- 新しい関数: ブックマークに基づいてテキストを分割 ---
 def split_text_by_bookmarks(pdf_path):
     """PDFのブックマーク（アウトライン）に基づきテキストを分割します。
@@ -161,7 +183,6 @@ def split_text_by_bookmarks(pdf_path):
                 while h_idx < h_len:
                     # haystackの空白をスキップ
                     while h_idx < h_len and haystack[h_idx].isspace():
-                        if potential_start == -1: start_offset += 1 # マッチ開始前ならオフセットも進める
                         h_idx += 1
                     if h_idx == h_len: break
 
@@ -240,27 +261,35 @@ def split_text_by_bookmarks(pdf_path):
                 if chapter_text: # ページ抽出テキストがある場合のみ絞り込み試行
                     try:
                         print(f"  章 '{title}': ページ抽出テキストに対しマーカー絞り込み試行...")
-                        start_pos = _find_ignoring_whitespace(chapter_text, title) # 開始マーカー検索
+                        # Normalize chapter text and markers for consistent apostrophe handling
+                        normalized_chapter_text = _normalize_apostrophes(chapter_text)
+                        normalized_title = _normalize_apostrophes(title)
+
+                        start_pos = _find_ignoring_whitespace(normalized_chapter_text, normalized_title)
+
                         if start_pos != -1:
-                            start_index = start_pos + len(title) # 開始位置（マーカーの直後）※空白無視の影響あり
+                            # Content starts after the normalized_title in normalized_chapter_text
+                            content_start_in_normalized = start_pos + len(normalized_title)
                             if next_title: # 次の章がある場合
-                                end_pos = _find_ignoring_whitespace(chapter_text, next_title, start_index) # 終了マーカー検索
+                                normalized_next_title = _normalize_apostrophes(next_title)
+                                end_pos = _find_ignoring_whitespace(normalized_chapter_text, normalized_next_title, content_start_in_normalized)
                                 if end_pos != -1:
-                                    refined_text = chapter_text[start_index:end_pos]
+                                    refined_text = normalized_chapter_text[content_start_in_normalized:end_pos]
                                     print(f"    -> 開始/終了マーカーで絞り込み成功。")
                                 else:
-                                    refined_text = chapter_text[start_index:] # 終了マーカーが見つからない場合は最後まで
+                                    refined_text = normalized_chapter_text[content_start_in_normalized:]
                                     print(f"    -> 開始マーカーで絞り込み成功（終了マーカーなし）。")
                             else: # 最終章
-                                refined_text = chapter_text[start_index:]
+                                refined_text = normalized_chapter_text[content_start_in_normalized:]
                                 print(f"    -> 開始マーカーで絞り込み成功（最終章）。")
                         else:
-                            print(f"    -> 開始マーカー '{title}' がページ抽出テキスト内に見つからず。絞り込みスキップ。")
+                            # Show both original and normalized title for debugging
+                            print(f"    -> 開始マーカー '{title}' (正規化後: '{normalized_title}') がページ抽出テキスト(正規化後)内に見つからず。絞り込みスキップ。")
                             refined_text = chapter_text # 開始マーカーが見つからない場合は元のテキストを使用
                     except Exception as e_refine: # 念のため絞り込み中のエラーをキャッチ
                         print(f"    -> マーカー絞り込み中に予期せぬエラー: {e_refine}。絞り込みスキップ。")
                         refined_text = chapter_text # エラー時も元のテキストを使用
-                chapters[title] = {"text": refined_text.strip(), "level": level} # 抽出/絞り込みしたテキストと階層レベルを辞書に格納 (前後の空白を除去)
+                chapters[title] = {"text": refined_text.strip(), "level": level}
 
     # --- エラーハンドリング ---
     except PyPDF2.errors.PdfReadError as e:

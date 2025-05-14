@@ -324,8 +324,8 @@ def main():
     # output_format はGUIで選択
     excel_max_cell_length = config.get("excel_max_cell_length")
     if not isinstance(excel_max_cell_length, int) or excel_max_cell_length <= 0:
-        print(f"警告: config.json の excel_max_cell_length ({excel_max_cell_length}) が不正な値です。デフォルト値 30000 を使用します。")
-        excel_max_cell_length = 30000 # デフォルト値
+        print(f"警告: config.json の excel_max_cell_length ({excel_max_cell_length}) が不正な値です。デフォルト値 1000 を使用します。")
+        excel_max_cell_length = 1000 # デフォルト値
 
 
     output_file_path = config.get("output_file_path", "output/result") # デフォルトパス設定
